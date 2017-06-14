@@ -1,0 +1,187 @@
+<html>
+<head>
+  <link href="https://fonts.googleapis.com/css?family=Kameron" rel="stylesheet">
+  <style>
+    html {
+      background: #F7F7F7;
+      color: #212121;
+      font-family: 'Kameron', serif;
+    }
+
+    div {
+      display: block;
+    }
+
+    *, *::before, *::after {
+      -moz-box-sizing: inherit;
+      box-sizing: inherit;
+    }
+
+    .flex-container {
+      padding: 0;
+      margin: 0;
+      display: -webkit-box;
+      display: -moz-box;
+      display: -ms-flexbox;
+      display: -webkit-flex;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .row {
+        max-width: 50%;
+    }
+
+    .flex-item {
+        padding: 5px;
+        margin: 10px;
+    }
+
+    .slider {
+      position: relative;
+      cursor: default;
+      width: 100%;
+
+      height: 40px;
+      outline: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
+
+    .slider-track {
+      position: absolute;
+      top: 5px;
+      right: 0;
+      left: 0;
+      border-radius: 3px;
+      background: rgba(92, 112, 128, 0.2);
+      height: 6px;
+      margin-left: 8px;
+    }
+
+    .slider-track, .slider-progress {
+      position: absolute;
+      top: 5px;
+      right: 0;
+      left: 0;
+      border-radius: 3px;
+      background: rgba(92, 112, 128, 0.2);
+      height: 6px;
+    }
+
+    .slider-axis {
+      position: absolute;
+      top: 20px;
+    }
+
+
+
+    .range-slider .slider-progress {
+      border-radius: 0;
+    }
+
+    .slider-progress, .dark .slider-progress {
+      background: #137cbd;
+      margin-left: 8px;
+    }
+
+    .range-slider .slider-handle {
+      width: 8px;
+    }
+    .range-slider .slider-handle:first-of-type {
+      border-top-right-radius: 0;
+      border-bottom-right-radius: 0;
+    }
+
+    .range-slider .slider-handle:last-of-type {
+      margin-left: 8px;
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+    }
+
+
+    .slider-handle:focus  {
+      z-index : 1;
+      outline : none;
+    }
+
+    .slider-handle {
+      z-index: 0;
+      background: #f5f8fa;
+      background: linear-gradient(to bottom, #ffffff, rgba(255, 255, 255, 0)) left no-repeat, center no-repeat #f5f8fa;
+      box-shadow: inset 0 0 0 1px rgba(16, 22, 26, 0.2), inset 0 -1px 0 rgba(16, 22, 26, 0.1);
+      color: #182026;
+      position: absolute;
+      top: 0;
+      left: 0;
+      border-radius: 3px;
+      box-shadow: 0 0 0 1px rgba(16, 22, 26, 0.2), 0 1px 1px rgba(16, 22, 26, 0.2);
+      cursor: pointer;
+      width: 16px;
+      height: 16px;
+    }
+
+
+
+    .slider-label {
+      display: inline-block;
+      border: 0;
+      outline: none;
+      padding: 2px 5px;
+      vertical-align: top;
+      line-height: 1;
+      font-size: 12px;
+      position: absolute;
+      -webkit-transition: all 0.22s ease-in-out;
+      -moz-transition: all  0.22s ease-in-out;
+      -ms-transition: all  0.22s ease-in-out;
+      -o-transition: all  0.22s ease-in-out;
+      transition: all  0.22s ease-in-out;
+    }
+
+    .slider-handle, .slider-label:focus {
+      border: 0;
+      outline: none;
+    }
+
+    .slider-handle .slider-label {
+      -webkit-transform: translate(-50%, 23px);
+      transform: translate(-50%, 23px);
+      border-radius: 3px;
+      box-shadow: 0 0 0 1px rgba(16, 22, 26, 0.1), 0 2px 4px rgba(16, 22, 26, 0.2), 0 8px 24px rgba(16, 22, 26, 0.2);
+      background: #394b59;
+      color: #f5f8fa;
+      opacity: 0;
+      border: 0;
+      outline: none;
+    }
+
+    .slider-handle:first-of-type .slider-label {
+        margin-left: 8px;
+    }
+
+    .slider-handle:last-of-type .slider-label {
+        margin-left: 0px;
+    }
+
+    .slider-handle:hover .slider-label {
+      opacity : 1;
+    }
+
+    .slider-handle:active .slider-label {
+      opacity : 1;
+    }
+
+  </style>
+    <script src="app.js"></script>
+</head>
+<body>
+  <script>
+    var app = Elm.Main.fullscreen()
+  </script>
+</body>
+</html>
