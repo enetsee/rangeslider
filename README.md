@@ -6,7 +6,7 @@ This library implements [reusable views](https://guide.elm-lang.org/reuse/more.h
 
 ## Demo
 
-TODO!
+A version of the example is available on [ellie][https://ellie-app.com] [here][https://embed.ellie-app.com/3twhtJfZNvya1/0]
 
 ##  Example
 
