@@ -1,12 +1,14 @@
 module RangeSlider
     exposing
         ( view
-        , State
-        , Endpoint(Lower, Upper)
-        , initialState
+        , viewUnstyled
         , Config
         , config
+        , StyleConfig
+        , defaultStyle
         , simpleConfig
+        , State
+        , initialState
         , subscriptions
         , update
         , Msg
@@ -15,95 +17,35 @@ module RangeSlider
 {-| Range-slider input
 
 # State
-@docs State, initialState, Endpoint
+@docs State, initialState
 
+# Configuration
+@docs Config, config , simpleConfig
+
+# Styles
+@docs StyleConfig , defaultStyle
 # View
-@docs view
+@docs view, viewUnstyled
 
 # Update
 @docs update, Msg
 
-# Configuration
-@docs Config , config, simpleConfig
 
 # Subscriptions
 @docs subscriptions
 -}
 
-import Html as H exposing (Html, Attribute)
-import Html.Attributes as A
-import Html.Events as E
+import Html as HtmlUnstyled
+import Html.Styled as H exposing (Html, Attribute)
+import Html.Styled.Attributes as A
 import Mouse exposing (Position)
-import Json.Decode as Decode exposing (Decoder)
-import Tuple exposing (first, second)
-import Linear
-import Interpolate
-import Ticks
-
-
-{-| Tracks the drag state, if any, of an endpoint and
-    the screenspace x-offset of the rangeslider handle control
--}
-type State
-    = State (Maybe ( Endpoint, Drag, Float ))
-
-
-{-| Initial, non-dragging, state.
--}
-initialState : State
-initialState =
-    State Nothing
-
-
-{-| Upper and lower endpoints of the range
--}
-type Endpoint
-    = Upper
-    | Lower
-
-
-{-| -}
-type Msg
-    = DragStart Endpoint Position
-    | DragAt Position
-    | DragEnd Position
-
-
-type alias Drag =
-    { start : Position
-    , current : Position
-    }
-
-
-
--- Configuration ---------------------------------------------------------------
+import RangeSlider.Events as E
+import RangeSlider.Helpers exposing (maybe, mkPx)
+import RangeSlider.Linear as Linear
+import RangeSlider.Style as Style
 
 
 {-| Configuration of the range slider
--}
-type Config msg domain
-    = Config
-        { domain : ( domain, domain )
-        , range : ( Float, Float )
-        , scale : domain -> Float
-        , unscale : Float -> domain
-        , ticks : List domain
-        , format : domain -> String
-        , toMsg : Endpoint -> domain -> Maybe msg
-        }
-
-
-{-| A configuration of the range slider allowing you to specify the
-type of your domain and the type of scale you wish to use. Note the
-type of the range is fixed as `Float` as the scale must be invertable.
-
-The two use cases for this configuration are
-- When you want to have a rangeslider over some type other than `Float`, e.g.
-`Date`.
-- When your data is skewed and you require some non-linear scale for your input
-e.g. a log scale.
-
-You provide the following information in your table configuration:
 
 - `domain` &mdash; the domain you wish to map from.
 - `range` &mdash; the range you wish to map on to.
@@ -114,26 +56,42 @@ You provide the following information in your table configuration:
 - `toMsg` &mdash; a way to send the new value of an endpoint to your app as messages.
 
 -}
+type Config msg domain
+    = Config
+        { domain : ( domain, domain )
+        , scale : domain -> Maybe Float
+        , unscale : Float -> Maybe domain
+        , ticks : List domain
+        , format : domain -> String
+        , onChangeLower : Maybe (domain -> msg)
+        , onChangeUpper : Maybe (domain -> msg)
+        }
+
+
+{-| A configuration of the range slider allowing you to specify the
+type of your domain and the type of scale you wish to use. Note the
+type of the range is fixed as `Float` as the scale must be invertable.
+-}
 config :
     { a
         | domain : ( domain, domain )
-        , range : ( Float, Float )
-        , scale : domain -> Float
-        , unscale : Float -> domain
-        , ticks : List domain
         , format : domain -> String
-        , toMsg : Endpoint -> domain -> Maybe msg
+        , onChangeLower : Maybe (domain -> msg)
+        , onChangeUpper : Maybe (domain -> msg)
+        , scale : domain -> Maybe Float
+        , ticks : List domain
+        , unscale : Float -> Maybe domain
     }
     -> Config msg domain
-config { domain, range, scale, unscale, ticks, format, toMsg } =
+config { domain, scale, unscale, ticks, format, onChangeLower, onChangeUpper } =
     Config
         { domain = domain
-        , range = range
         , scale = scale
         , unscale = unscale
         , ticks = ticks
         , format = format
-        , toMsg = toMsg
+        , onChangeLower = onChangeLower
+        , onChangeUpper = onChangeUpper
         }
 
 
@@ -154,57 +112,92 @@ You provide the following information in your table configuration:
 -}
 simpleConfig :
     { a
-        | domain : ( Float, Float )
-        , width : Float
-        , maybeRoundTo : Maybe Float
-        , maybeTickCount : Maybe Int
-        , format : Float -> String
-        , toMsg : Endpoint -> Float -> Maybe msg
+        | format : Float -> String
+        , maxValue : Float
+        , minValue : Float
+        , onChangeLower : Maybe (Float -> msg)
+        , onChangeUpper : Maybe (Float -> msg)
+        , step : Maybe Float
+        , tickCount : Maybe Int
     }
     -> Config msg Float
-simpleConfig { domain, width, maybeTickCount, format, maybeRoundTo, toMsg } =
+simpleConfig { minValue, maxValue, tickCount, format, step, onChangeUpper, onChangeLower } =
     let
         scale =
             Linear.scale
                 domain
-                range
+                ( 0.0, 1.0 )
                 True
                 Linear.deinterpolate
-                Interpolate.linear
+                Linear.interpolate
+                >> Just
 
         unscale =
             Linear.unscale
                 domain
-                range
+                ( 0.0, 1.0 )
                 True
-                (case maybeRoundTo of
-                    Just r ->
-                        \a b ->
-                            Interpolate.roundTo r <|
-                                Interpolate.linear a b
+                interp
+                >> Just
 
-                    _ ->
-                        Interpolate.linear
-                )
+        interp =
+            case step of
+                Just r ->
+                    \a b ->
+                        Linear.roundTo r <|
+                            Linear.interpolate a b
+
+                _ ->
+                    Linear.interpolate
 
         ticks =
-            maybe [] (Ticks.ticks d0 d1) maybeTickCount
+            maybe [] (Linear.ticks minValue maxValue) tickCount
 
-        range =
-            ( 0.0, width )
-
-        ( d0, d1 ) =
-            domain
+        domain =
+            ( minValue, maxValue )
     in
         Config
             { domain = domain
-            , range = range
             , scale = scale
             , unscale = unscale
             , ticks = ticks
             , format = format
-            , toMsg = toMsg
+            , onChangeUpper = onChangeUpper
+            , onChangeLower = onChangeLower
             }
+
+
+{-| -}
+type alias StyleConfig =
+    Style.Config
+
+
+{-| -}
+defaultStyle : Style.Config
+defaultStyle =
+    Style.default
+
+
+{-| Tracks the drag state, if any, of an endpoint and
+    the screenspace x-offset of the rangeslider handle control
+-}
+type State
+    = Dragging { endpoint : Endpoint, bound : Float, current : Position, offsetX : Float, width : Float }
+    | NotDragging
+
+
+{-| Upper and lower endpoints of the range
+-}
+type Endpoint
+    = Upper
+    | Lower
+
+
+{-| Initial, non-dragging, state.
+-}
+initialState : State
+initialState =
+    NotDragging
 
 
 
@@ -212,65 +205,194 @@ simpleConfig { domain, width, maybeTickCount, format, maybeRoundTo, toMsg } =
 
 
 {-| -}
+type Msg
+    = DragStart Endpoint Float Position Float Float
+    | DragAt Position
+    | DragEnd Position
+    | Set Endpoint Float
+
+
+{-| -}
 update :
     Config msg comparableDomain
     -> Msg
     -> State
-    -> ( comparableDomain, comparableDomain )
     -> ( State, Maybe msg )
-update (Config config) msg (State state) ( lower, upper ) =
-    case msg of
-        DragStart endpoint position ->
+update (Config config) msg state =
+    case ( msg, state ) of
+        ( Set Upper value, _ ) ->
+            ( state
+            , Maybe.andThen
+                (\handler ->
+                    value
+                        |> config.unscale
+                        |> Maybe.map handler
+                )
+                config.onChangeUpper
+            )
+
+        ( Set Lower value, _ ) ->
+            ( state
+            , Maybe.andThen
+                (\handler ->
+                    value
+                        |> config.unscale
+                        |> Maybe.map handler
+                )
+                config.onChangeLower
+            )
+
+        ( DragStart endpoint bound position offset width, _ ) ->
+            ( dragging endpoint bound position offset width
+            , Nothing
+            )
+
+        ( DragAt position, Dragging { endpoint, bound, current, offsetX, width } ) ->
+            ( dragging endpoint bound position offsetX width
+            , Nothing
+            )
+
+        ( DragAt position, NotDragging ) ->
+            ( NotDragging
+            , Nothing
+            )
+
+        ( DragEnd position, Dragging drag ) ->
             let
-                ux =
-                    case endpoint of
+                msg =
+                    case drag.endpoint of
                         Upper ->
-                            config.scale upper
+                            Maybe.andThen (\handler -> Maybe.map handler (dragEndHelper config drag))
+                                config.onChangeUpper
 
                         Lower ->
-                            config.scale lower
+                            Maybe.andThen (\handler -> Maybe.map handler (dragEndHelper config drag))
+                                config.onChangeLower
             in
-                ( State <| Just ( endpoint, Drag position position, ux )
-                , Nothing
+                ( NotDragging
+                , msg
                 )
 
-        DragAt position ->
-            let
-                newState =
-                    Maybe.map
-                        (\( endpoint, drag, ux ) ->
-                            ( endpoint, { drag | current = position }, ux )
-                        )
-                        state
-            in
-                ( State newState, Nothing )
+        ( DragEnd _, NotDragging ) ->
+            ( NotDragging
+            , Nothing
+            )
 
-        DragEnd position ->
-            case state of
-                Just ( endpoint, { start }, offsetX ) ->
-                    let
-                        newValue =
-                            absolutePosition
-                                (config.unscale)
-                                (clamp l u)
-                                start
-                                position
-                                offsetX
 
-                        ( l, u ) =
-                            case endpoint of
-                                Lower ->
-                                    ( first config.domain, upper )
 
-                                Upper ->
-                                    ( lower, second config.domain )
-                    in
-                        ( State Nothing
-                        , config.toMsg endpoint newValue
-                        )
+-- View ------------------------------------------------------------------------
 
-                _ ->
-                    ( State Nothing, Nothing )
+
+{-| -}
+viewUnstyled :
+    StyleConfig
+    -> Config msg Float
+    -> State
+    -> ( Float, Float )
+    -> HtmlUnstyled.Html Msg
+viewUnstyled styles config state range =
+    view styles config state range
+        |> H.toUnstyled
+
+
+{-| -}
+view : StyleConfig -> Config msg Float -> State -> ( Float, Float ) -> Html Msg
+view styles (Config config) state ( lower, upper ) =
+    let
+        ( tempLower, tempUpper ) =
+            draggingHelper config ( lower, upper ) state
+
+        ( positionLower, positionUpper ) =
+            ( config.scale tempLower |> Maybe.withDefault lower
+            , config.scale tempUpper |> Maybe.withDefault upper
+            )
+
+        progressWidth =
+            mkPx <| positionUpper - positionLower
+
+        ( lowerLeft, upperLeft ) =
+            ( mkPx positionLower, mkPx positionUpper )
+    in
+        H.div [ A.css styles.rangeSlider ]
+            -- A.class "c-range-slider" ]
+            [ H.div
+                [ A.css styles.track
+                  -- A.class "c-range-slider__track"
+                ]
+                []
+            , H.div
+                [ A.css styles.progress
+                  -- A.class "c-range-slider__progress"
+                , A.style [ ( "left", lowerLeft ), ( "width", progressWidth ) ]
+                , E.onClick (onClickHelper positionLower positionUpper)
+                ]
+                []
+            , H.div [] <|
+                List.filterMap (viewTick styles config.scale config.format) config.ticks
+              --A.class "c-range-slider__axis"
+            , viewSliderHandle styles
+                Lower
+                (config.scale upper |> Maybe.withDefault 1.0)
+                lowerLeft
+                [ A.css styles.labelLower
+                  --A.class "c-range-slider__label" ]
+                ]
+                [ H.text <| config.format tempLower ]
+            , viewSliderHandle styles
+                Upper
+                (config.scale lower |> Maybe.withDefault 0.0)
+                upperLeft
+                [ A.css styles.labelUpper
+                  --A.class "c-range-slider__label" ]
+                ]
+                [ H.text <| config.format tempUpper ]
+            ]
+
+
+viewTick : StyleConfig -> (a -> Maybe Float) -> (a -> String) -> a -> Maybe (Html msg)
+viewTick styles scale format tick =
+    scale tick
+        |> Maybe.map
+            (\x ->
+                let
+                    left =
+                        mkPx x
+                in
+                    H.div
+                        [ A.css styles.tick
+                          -- A.class "c-range-slider__tick"
+                        , A.style [ ( "left", left ) ]
+                        ]
+                        [ H.text <| format tick ]
+            )
+
+
+viewSliderHandle :
+    StyleConfig
+    -> Endpoint
+    -> Float
+    -> String
+    -> List (Attribute Msg)
+    -> List (Html Msg)
+    -> Html Msg
+viewSliderHandle styles endpoint bound left attrs content =
+    let
+        style =
+            case endpoint of
+                Lower ->
+                    styles.handleLower
+
+                Upper ->
+                    styles.handleUpper
+    in
+        H.span
+            [ E.onMouseDown (DragStart endpoint bound)
+              -- , A.class "c-range-slider__handle"
+            , A.css style
+            , A.style [ ( "left", left ) ]
+            , A.tabindex 0
+            ]
+            [ H.span attrs content ]
 
 
 
@@ -280,9 +402,9 @@ update (Config config) msg (State state) ( lower, upper ) =
 {-| Subscriptions that should be added to your app's own subscriptions.
 -}
 subscriptions : State -> Sub Msg
-subscriptions (State state) =
+subscriptions state =
     case state of
-        Nothing ->
+        NotDragging ->
             Sub.none
 
         _ ->
@@ -293,152 +415,82 @@ subscriptions (State state) =
 
 
 
--- View ------------------------------------------------------------------------
-
-
-{-| -}
-view :
-    Config msg comparableDomain
-    -> State
-    -> ( comparableDomain, comparableDomain )
-    -> Html Msg
-view (Config config) (State state) ( lower, upper ) =
-    let
-        ( tempLower, tempUpper ) =
-            case state of
-                Just ( Lower, { start, current }, offsetX ) ->
-                    let
-                        clampIt =
-                            clamp (first config.domain) upper
-                    in
-                        ( absolutePosition config.unscale clampIt start current offsetX
-                        , upper
-                        )
-
-                Just ( Upper, { start, current }, offsetX ) ->
-                    let
-                        clampIt =
-                            clamp lower (second config.domain)
-                    in
-                        ( lower
-                        , absolutePosition config.unscale clampIt start current offsetX
-                        )
-
-                _ ->
-                    ( lower, upper )
-
-        ( positionLower, positionUpper ) =
-            ( config.scale tempLower, config.scale tempUpper )
-
-        progressWidth =
-            mkPx <| positionUpper - positionLower
-
-        ( lowerLeft, upperLeft ) =
-            ( mkPx positionLower, mkPx positionUpper )
-
-        sliderWidth =
-            mkPx <| (second config.range) - (first config.range)
-    in
-        H.div [ A.class "slider", A.class "range-slider", A.style [ ( "width", sliderWidth ) ] ]
-            [ H.div
-                [ A.class "slider-track"
-                , A.style [ ( "width", sliderWidth ) ]
-                ]
-                []
-            , H.div
-                [ A.class "slider-progress"
-                , A.style [ ( "left", lowerLeft ), ( "width", progressWidth ) ]
-                ]
-                []
-            , H.div [ A.class "slider-axis" ] <|
-                List.map (viewTick config.scale config.format) config.ticks
-            , viewSliderHandle
-                Lower
-                lowerLeft
-                [ A.class "slider-label" ]
-                [ H.text <| config.format tempLower ]
-            , viewSliderHandle
-                Upper
-                upperLeft
-                [ A.class "slider-label" ]
-                [ H.text <| config.format tempUpper ]
-            ]
-
-
-viewTick : (a -> b) -> (a -> String) -> a -> Html msg
-viewTick scale format tick =
-    let
-        left =
-            toString (scale tick) ++ "px"
-    in
-        H.div
-            [ A.class "slider-label"
-            , A.style [ ( "left", left ) ]
-            ]
-            [ H.text <| format tick ]
-
-
-viewSliderHandle :
-    Endpoint
-    -> String
-    -> List (Attribute Msg)
-    -> List (Html Msg)
-    -> Html Msg
-viewSliderHandle endpoint left attrs content =
-    H.span
-        [ onMouseDown endpoint
-        , A.class "slider-handle"
-        , A.style [ ( "left", left ) ]
-        , A.tabindex 0
-        ]
-        [ H.span attrs content ]
-
-
-
--- Events ----------------------------------------------------------------------
-
-
-onMouseDown : Endpoint -> Attribute Msg
-onMouseDown endpoint =
-    E.on "mousedown" <|
-        Decode.map (DragStart endpoint) Mouse.position
-
-
-onTouch : Endpoint -> Attribute Msg
-onTouch endpoint =
-    E.on "touchstart" <|
-        Decode.map (DragStart endpoint) Mouse.position
-
-
-
 -- Helpers ---------------------------------------------------------------------
 
 
-mkPx : Float -> String
-mkPx px =
-    toString px ++ "px"
+dragging : Endpoint -> Float -> Position -> Float -> Float -> State
+dragging endpoint bound current offsetX width =
+    Dragging
+        { endpoint = endpoint
+        , bound = bound
+        , current = current
+        , offsetX = offsetX
+        , width = width
+        }
 
 
-maybe : a -> (b -> a) -> Maybe b -> a
-maybe whenNothing withJust maybeVal =
-    case maybeVal of
-        Just val ->
-            withJust val
+dragEndHelper :
+    { b | unscale : Float -> a }
+    -> { d
+        | bound : Float
+        , current : { c | x : Int }
+        , endpoint : Endpoint
+        , offsetX : Float
+        , width : Float
+       }
+    -> a
+dragEndHelper { unscale } { endpoint, bound, current, offsetX, width } =
+    let
+        ( l, u ) =
+            case endpoint of
+                Lower ->
+                    ( 0.0, bound )
+
+                Upper ->
+                    ( bound, 1.0 )
+    in
+        unscale <|
+            clamp l u <|
+                toFloat (current.x - floor offsetX)
+                    / width
+
+
+draggingHelper :
+    { b | unscale : Float -> Maybe a }
+    -> ( a, a )
+    -> State
+    -> ( a, a )
+draggingHelper { unscale } ( lower, upper ) state =
+    case state of
+        Dragging { endpoint, bound, current, offsetX, width } ->
+            let
+                x =
+                    (toFloat current.x - offsetX) / width
+            in
+                case endpoint of
+                    Lower ->
+                        ( clamp 0 bound x |> unscale |> Maybe.withDefault lower
+                        , upper
+                        )
+
+                    Upper ->
+                        ( lower
+                        , clamp bound 1.0 x |> unscale |> Maybe.withDefault upper
+                        )
 
         _ ->
-            whenNothing
+            ( lower, upper )
 
 
-absolutePosition :
-    (Float -> a)
-    -> (a -> b)
-    -> Position
-    -> Position
-    -> Float
-    -> b
-absolutePosition unscale clampToRange start current offsetX =
-    clampToRange <|
-        unscale <|
-            offsetX
-                + (toFloat current.x)
-                - (toFloat start.x)
+onClickHelper : Float -> Float -> { a | x : Int } -> Float -> Float -> Msg
+onClickHelper lower upper current offsetX width =
+    let
+        prop =
+            clamp lower upper <|
+                toFloat (current.x - floor offsetX)
+                    / width
+    in
+        if (abs <| prop - lower) < (abs <| upper - prop) then
+            Set Lower <| prop
+        else
+            Set Upper <| prop
